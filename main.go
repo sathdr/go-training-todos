@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	echo "github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/pallat/todos/auth"
 	"github.com/pallat/todos/captcha"
 	"github.com/pallat/todos/logger"
 	"github.com/pallat/todos/todos"
@@ -40,6 +40,7 @@ func main() {
 	}
 
 	viper.SetDefault("app.addr", "0.0.0.0:8888")
+	viper.SetDefault("jwt.secret", "mypassword")
 
 	db, err := gorm.Open(sqlite.Open("gorm.db"), &gorm.Config{})
 	if err != nil {
@@ -77,11 +78,15 @@ func main() {
 	router.GET("/captcha", captchaHandler)
 	router.POST("/exchange", exchangeHandler)
 
-	router.GET("/todos", todos.NewListTodoHandler(db))
-	router.GET("/todos/:id", todos.NewGetTodoHandler(db))
-	router.POST("/todos", todos.NewNewTodoHandler(db))
-	router.PUT("/todos/:id", todos.NewUpdateTodoHandler(db))
-	router.DELETE("/todos/:id", todos.NewDeleteTodoHandler(db))
+	restricted := router.Group("")
+	restricted.Use(middleware.JWTWithConfig(middleware.JWTConfig{
+		SigningKey: []byte(viper.GetString("jwt.secret")),
+	}))
+	restricted.GET("/todos", todos.NewListTodoHandler(db))
+	restricted.GET("/todos/:id", todos.NewGetTodoHandler(db))
+	restricted.POST("/todos", todos.NewNewTodoHandler(db))
+	restricted.PUT("/todos/:id", todos.NewUpdateTodoHandler(db))
+	restricted.DELETE("/todos/:id", todos.NewDeleteTodoHandler(db))
 
 	srv := &http.Server{
 		Addr:         viper.GetString("app.addr"),
@@ -137,7 +142,17 @@ func exchangeHandler(c echo.Context) error {
 		})
 	}
 
-	t, err := auth.Token()
+	// Create token
+	token := jwt.New(jwt.SigningMethodHS256)
+
+	// Set claims
+	claims := token.Claims.(jwt.MapClaims)
+	claims["name"] = "Jon Snow"
+	claims["admin"] = true
+	claims["exp"] = time.Now().Add(time.Minute * 10).Unix()
+
+	// Generate encoded token and send it as response.
+	t, err := token.SignedString([]byte(viper.GetString("jwt.secret")))
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": err.Error(),
