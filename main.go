@@ -74,6 +74,7 @@ func main() {
 	router.GET("/ping", func(c echo.Context) error {
 		return c.String(200, "pong")
 	})
+	router.GET("/ready", NewReadyHandler(db))
 
 	router.GET("/captcha", captchaHandler)
 	router.POST("/exchange", exchangeHandler)
@@ -162,4 +163,20 @@ func exchangeHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"token": t,
 	})
+}
+
+// NewReadyHandler return handler using provided DB
+func NewReadyHandler(db *gorm.DB) echo.HandlerFunc {
+	return func(c echo.Context) error {
+
+		if err := db.AutoMigrate(todos.Task{}); err != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error": err.Error(),
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ready",
+		})
+	}
 }
